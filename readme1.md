@@ -1,5 +1,10 @@
 readme.md
 
+
+Review: the final movie file can be found here: https://youtu.be/dSwJ_oc49og
+
+
+
 The goals / steps of this project are the following:
 
 ## Compute the camera calibration matrix and distortion coefficients given a set of chessboard images.

@@ -385,8 +385,8 @@ def project_back(warped, ploty, leftx, rightx, undistorted_image):
     color_warp = np.dstack((warp_zero, warp_zero, warp_zero))
 
     # Recast the x and y points into usable format for cv2.fillPoly()
-    pts_left = np.array([np.transpose(np.vstack([left_fitx, ploty]))])
-    pts_right = np.array([np.flipud(np.transpose(np.vstack([right_fitx, ploty])))])
+    pts_left = np.array([np.transpose(np.vstack([leftx, ploty]))])
+    pts_right = np.array([np.flipud(np.transpose(np.vstack([rightx, ploty])))])
     pts = np.hstack((pts_left, pts_right))
 
     # Draw the lane onto the warped blank image
@@ -490,6 +490,8 @@ print ("Showing image....")
 video = 'project_video.mp4'
 #video = 'challenge_video.mp4'
 cap = cv2.VideoCapture(video)
+ret, frame = cap.read()
+
 current_frame=0
 counter_bad_frame=0
 stacked_left_fit=[]
@@ -500,7 +502,10 @@ stacked_right_fitx=[]
 stacked_left_cv=[]
 stacked_right_cv=[]
 
+#fourcc = cv2.VideoWriter_fourcc(*'XVID')
+fourcc = cv2.VideoWriter_fourcc('m', 'p', '4', 'v') #macosx
 
+video_out = cv2.VideoWriter('franz_output.mp4',fourcc, 20.0,(frame.shape[1],frame.shape[0]))
 
 while(cap.isOpened()):
     ret, frame = cap.read()
@@ -605,10 +610,14 @@ while(cap.isOpened()):
     cv2.putText(last,average_curvature,(10,50), font, 1,(255,255,255),2)
     cv2.putText(last,deviation_from_center,(10,80), font, 1,(255,255,255),2)
 
-    cv2.imshow('WindowName',last)
+    video_out.write(last)
+    #cv2.imshow('WindowName',last)
+
     current_frame = current_frame +1
     if (cv2.waitKey(25) & 0xFF == ord('q')):
         break
 
+
 cap.release()
+video_out.release()
 cv2.destroyAllWindows()

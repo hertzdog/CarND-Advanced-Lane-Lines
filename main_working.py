@@ -7,6 +7,7 @@ import os.path
 from pathlib import Path
 import matplotlib.image as mpimg
 from PIL import Image
+import moviepy.editor as mpy
 
 #CAMERA CALIBRATION START (Taken from Camera Calibration project)
 def camera_calibration():
@@ -108,22 +109,13 @@ def verify_camera_calibration():
     filename = "output_images/undistort_output.png"
     plt.savefig(filename)
 
-def extract_frame(desired_frame_number, video):
+def extract_frame(seconds, video):
+    milliseconds = seconds*1000
     cap = cv2.VideoCapture(video)
-    frame_number=0
-    while(cap.isOpened()):
-        ret, frame = cap.read()
-        frame_number = frame_number +1
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-        cv2.imshow('frame',frame)
-        if frame_number == desired_frame_number:
-            return frame
-        if (cv2.waitKey(25) & 0xFF == ord('q')) | frame_number == desired_frame_number:
-            break
-
-    cap.release()
-    cv2.destroyAllWindows()
+    cap.set(cv2.CAP_PROP_POS_MSEC,milliseconds)      # just cue to 20 sec. position
+    success,image = cap.read()
+    if success:
+        return image
 
 def warp_frame(img):
     # we defined points in perspective_transform.py
@@ -159,6 +151,13 @@ def warp_frame(img):
     M = cv2.getPerspectiveTransform(src, dst)
     warped = cv2.warpPerspective(img, M, img_size, flags=cv2.INTER_LINEAR)
     return warped
+
+# PERCENTILE
+def threshold_precentile(img, percentile=98):
+    high = np.percentile(img, percentile)
+    threshold = int(high)
+    mask = cv2.inRange(img, (threshold), (255))
+    return mask
 
 def abs_sobel_thresh(img, orient='x', sobel_kernel=3, thresh=(0, 255)):
     # Calculate directional gradient
@@ -205,6 +204,35 @@ def dir_threshold(img, sobel_kernel=3, thresh=(0, np.pi/2)):
     # 6) Return this mask as your binary_output image
     binary_output = sxbinary # Remove this line
     return binary_output
+
+def perform_final_mask(img, percentile=98):
+    # create images in different color spaces
+    hsv = cv2.cvtColor(img, cv2.COLOR_RGB2HSV)
+    hls = cv2.cvtColor(img, cv2.COLOR_RGB2HLS)
+    luv = cv2.cvtColor(img, cv2.COLOR_RGB2LUV)
+    lab = cv2.cvtColor(img, cv2.COLOR_RGB2LAB)
+    xyz = cv2.cvtColor(img, cv2.COLOR_RGB2XYZ)
+    yuv = cv2.cvtColor(img, cv2.COLOR_RGB2YUV)
+
+    #use only the one we think is good (done in notebook)
+    #RGB - RG
+    final_mask= threshold_precentile(img[:,:,0])
+    final_mask=final_mask+threshold_precentile(img[:,:,1])
+    #HSV - V
+    final_mask=final_mask+threshold_precentile(hsv[:,:,2])
+    #LUV - UV
+    final_mask=final_mask+threshold_precentile(luv[:,:,1])
+    final_mask=final_mask+threshold_precentile(luv[:,:,2])
+    #LAB - LB
+    final_mask=final_mask+threshold_precentile(lab[:,:,0])
+    final_mask=final_mask+threshold_precentile(lab[:,:,2])
+    # XY - ALL
+    final_mask=final_mask+threshold_precentile(xyz[:,:,0])
+    final_mask=final_mask+threshold_precentile(xyz[:,:,1])
+    # YUV - U
+    final_mask=final_mask+threshold_precentile(yuv[:,:,1])
+    return final_mask
+
 
 def find_curvature_init(binary_warped):
     # Prerequisite: we have created a warped binary image called "binary_warped"
@@ -421,7 +449,7 @@ else:
 #condition = False
 if not condition:
     print ("Extracting an image of straight road...")
-    straight_road_img = extract_frame(347,'project_video.mp4')
+    straight_road_img = extract_frame(15,'project_video.mp4')
     cv2.imwrite('output_images/frame347.jpg',straight_road_img)
     straight_road_img_undistorted = distortion_correction("output_images/camera_cal_pickle.p", straight_road_img)
     cv2.imwrite('output_images/frame347_undist.jpg',straight_road_img_undistorted)
@@ -458,11 +486,12 @@ dir_binary_gray = dir_threshold(uvsg, sobel_kernel=3, thresh=(1/30*np.pi/2, (1+3
 combined_gray = np.zeros_like(dir_binary_gray)
 combined_gray[((gradx_gray == 1)) | ((mag_binary_gray == 1) & (dir_binary_gray == 1))] = 1
 binary_warped = combined_gray
+binary_warped = perform_final_mask(img)
 
 plt.figure(1)
 plt.subplot(221)
-plt.imshow(uvsg, cmap='gray')
-plt.title('UVSG channels')
+plt.imshow(img)
+plt.title('Original warped')
 
 plt.subplot(222)
 plt.imshow(binary_warped, cmap='gray')
@@ -479,6 +508,13 @@ plt.xlim(0, 1280)
 plt.ylim(720, 0)
 plt.title('Lines')
 
+plt.subplot(224)
+straight_road_img_undistorted = mpimg.imread("output_images/frame347_undist.jpg")
+image_back=project_back(binary_warped, ploty, left_fitx, right_fitx, straight_road_img_undistorted)
+plt.imshow(image_back)
+
+
+
 plt.savefig('./output_images/treatment_on_single_frame.png')
 plt.show()
 
@@ -487,8 +523,10 @@ print ("Showing image....")
 
 
 # MAIN --------
-video = 'project_video.mp4'
+
 #video = 'challenge_video.mp4'
+#video = mpy.VideoFileClip("project_video.mp4").subclip(38,43)
+video = 'project_video.mp4'
 cap = cv2.VideoCapture(video)
 ret, frame = cap.read()
 
@@ -535,6 +573,7 @@ while(cap.isOpened()):
     combined_gray[((gradx_gray == 1)&(grady_gray != 1)) | ((mag_binary_gray == 1) & (dir_binary_gray == 1))] = 1
     binary_warped = combined_gray
 
+    binary_warped = perform_final_mask(warped)
     # decide to use previous information or initialize line detection
     # if the frame is 0 we are at the beginnin and we have to initialize
     if current_frame==0:
@@ -591,8 +630,8 @@ while(cap.isOpened()):
     #smoothing measurements
 
     last_frames=len(stacked_left_fitx)
-    if last_frames >5:
-        last_frames = 5
+    if last_frames >1:
+        last_frames = 1
     computed_ploty = np.mean(stacked_ploty[-last_frames:],0)
     computed_left_fitx = np.mean(stacked_left_fitx[-last_frames:],0)
     computed_right_fitx = np.mean(stacked_right_fitx[-last_frames:],0)
@@ -610,8 +649,8 @@ while(cap.isOpened()):
     cv2.putText(last,average_curvature,(10,50), font, 1,(255,255,255),2)
     cv2.putText(last,deviation_from_center,(10,80), font, 1,(255,255,255),2)
 
-    video_out.write(last)
-    #cv2.imshow('WindowName',last)
+    #video_out.write(last)
+    cv2.imshow('WindowName',binary_warped)
 
     current_frame = current_frame +1
     if (cv2.waitKey(25) & 0xFF == ord('q')):
